@@ -45,88 +45,69 @@ let UpdatePackageVersion (this: Paket.DependenciesFile) groupName packageName (v
     else
         this
 
-let getFileVersion (dependenciesFile: Paket.DependenciesFile) (group: GroupName) (packageName: PackageName) =
-    let findPackage = dependenciesFile.GetGroup(group).Packages |> List.tryFind (fun p -> p.Name = packageName)
-    match findPackage with
-    | Some package ->
-        match package.VersionRequirement with
-        | Paket.VersionRequirement(Paket.Specific ver,_) ->
-            Some ver
-        | _ -> failwith "Could not Find Version"
-    | None -> None
-
 let getVersion parameters =
     let arguments = parameters.Context.Arguments
     match arguments with
     | [] -> failwithf "Please specify the versionnumber using: --version VERSIONNUMBER"
-    | ["--version"; version] -> Fake.Core.SemVer.parse version
+    | ["--version"; version] -> Paket.SemVer.Parse version
     | other -> failwithf "Unrecognized options! Please only pass the version number. You gave me: %A" other
 
 
-
-
 Target.create "Pack" (fun parameters ->
-    let packHandler (version : SemVerInfo) =
-        Shell.mkdir (__SOURCE_DIRECTORY__ </> "nuget")
-        Paket.pack
-            (fun settings ->
-                printfn "Output Path: %s" (__SOURCE_DIRECTORY__ </> "nuget")
-                { settings with
-                    TemplateFile = IO.Path.Combine(Path.getDirectory(Project.ProjectFile), "paket.template")
-                    Version = version.AsString
-                    OutputPath = (__SOURCE_DIRECTORY__ </> "nuget") // we build into nuget so we can easily upload everything in there with one command
-                    BuildConfig =  "Release" }
-                )
-    let parsedVersion = getVersion parameters
-    packHandler parsedVersion)
+    let path = Path.Combine(Directory.GetCurrentDirectory(), "paket.dependencies")
+    let dependenciesFile = Paket.DependenciesFile.ReadFromFile(path)
 
+    let group = GroupName "App"
+    let packageName = PackageName Project.PackageName
+    let version = getVersion parameters
+    printf "%A" version
+    Shell.mkdir (__SOURCE_DIRECTORY__ </> "nuget")
 
-let pushToGitHub packageName =
+    let setPackOptions (settings: DotNet.PackOptions) =
+        let msBuildParams = { settings.MSBuildParams with Properties = [ "Version", version.ToString() ] }
+        { settings with
+            Configuration = DotNet.BuildConfiguration.Release
+            MSBuildParams = msBuildParams
+            OutputPath = Some (__SOURCE_DIRECTORY__ </> "nuget") }
+
+    DotNet.pack setPackOptions Project.ProjectFile)
+
+Target.create "Push" (fun _ ->
 
     let value = Environment.GetEnvironmentVariable("GITHUB_PUSH_TOKEN")
     let message = "You need to set the environment variable 'GITHUB_PUSH_TOKEN' with a GitHub Access Token https://help.github.com/en/github/authenticating-to-github/creating-a-personal-access-token-for-the-command-line"
     if String.IsNullOrEmpty(value) then failwith message
 
     //Get All versions for specific Package e.g. nuget/EdelwiessData.Core.0.0.1.nupkg
-    let pattern = sprintf "%s*" packageName
+    let pattern = sprintf "%s*" Project.PackageName
     let files = IO.Directory.GetFiles("nuget", pattern)
 
-    let push file =
-        let nugetPush =
-            if Environment.isWindows then
-                [ "push"; "-Source"; "GitHub"; "-ConfigFile"; ".nuget/Nuget/Nuget.config"; file ]
-                |> CreateProcess.fromRawCommand ".nuget/nuget.exe"
-                |> CreateProcess.redirectOutput
-                |> Proc.run
-            else
-                [ ".nuget/nuget.exe"; "push"; "-Source"; "GitHub"; "-ConfigFile"; ".nuget/Nuget/Nuget.config"; file ]
-                |> CreateProcess.fromRawCommand "mono"
-                |> CreateProcess.redirectOutput
-                |> Proc.run
+
+    for file in files do
+        DotNet.nugetPush
+            (fun options ->
+                { options with
+                    PushParams =
+                    { options.PushParams with
+                        Source = Some "GitHub" } })
+            file
+        File.delete(file)
+)
 
 
-        if nugetPush.ExitCode > 0 then
-            failwith (sprintf "Could not push Package: %s" nugetPush.Result.Error)
-
-    files |> Seq.iter (push)
-
-Target.create "Push" (fun _ -> pushToGitHub Project.PackageName)
-
-
-Target.create "UpdatePackage" (fun _ ->
+Target.create "Update" (fun parameters ->
     let path = Path.Combine(Directory.GetCurrentDirectory(), "paket.dependencies")
     let dependenciesFile = Paket.DependenciesFile.ReadFromFile(path)
 
     let group = GroupName "App"
-    let packageName = PackageName "App.Library"
+    let packageName = PackageName Project.PackageName
 
 
     //Increment Version Number
-    packageName
-    |> getFileVersion dependenciesFile group
-    |> Option.map (fun version -> { version with Patch = version.Patch + 1u; Original = None })
-    |> Option.map (fun v -> UpdatePackageVersion dependenciesFile group packageName (v.ToString()))
-    |> Option.iter (fun file -> file.Save())
+    let version = getVersion parameters
+    let newVersion = { version with Patch = version.Patch + 1u; Original = None }
+    let file = UpdatePackageVersion dependenciesFile group packageName (newVersion.ToString())
+    file.Save()
 
     Paket.Dependencies.Locate().Install(force = false)
 )
@@ -140,8 +121,7 @@ Target.create "Clean" (fun _ ->
 )
 
 Target.create "Build" (fun _ ->
-    !! "src/**/*.*proj"
-    |> Seq.iter (DotNet.build id)
+    DotNet.build (fun (o: DotNet.BuildOptions) -> { o with Configuration = DotNet.BuildConfiguration.Release }) Project.ProjectFile
 )
 
 Target.create "All" ignore
@@ -153,4 +133,4 @@ Target.create "All" ignore
   ==> "Update"
   ==> "All"
 
-Target.runOrDefault "All"
+Target.runOrDefaultWithArguments "All"

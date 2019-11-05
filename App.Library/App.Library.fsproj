@@ -2,10 +2,17 @@
 
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
+    <Authors>Ody Mbegbu</Authors>
+    <RepositoryUrl>https://github.com/odytrice/fake-paket-sample</RepositoryUrl>
+    <Description>Fake Paket Template Package</Description>
   </PropertyGroup>
 
   <ItemGroup>
     <Compile Include="Library.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="*.fsproj; *.fs" PackagePath="fable\" />
   </ItemGroup>
 
 </Project>

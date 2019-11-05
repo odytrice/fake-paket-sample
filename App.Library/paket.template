@@ -1,0 +1,12 @@
+type project
+id App.Library
+authors Ody Mbegbu
+include-pdbs true
+projectUrl https://github.com/odytrice/fake-paket-sample
+description
+  Fake Paket Template Package
+files
+  *.fs ==> fable
+  *.fsproj ==> fable
+dependencies
+  framework: netstandard20

@@ -3,9 +3,9 @@ group App
     framework: netcoreapp2.2,netstandard2.0
     source https://api.nuget.org/v3/index.json
 
-    //source https://nuget.pkg.github.com/odytrice/index.json username: "odytrice" password: "%GITHUB_TOKEN%" authtype: "basic"
+    source https://nuget.pkg.github.com/odytrice/index.json username: "odytrice" password: "%GITHUB_PULL_TOKEN%" authtype: "basic"
     storage: none
-    //nuget App.Library 0.0.1
+    nuget App.Library 0.0.1
 
 group Build
     storage: none
